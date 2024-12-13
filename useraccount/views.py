@@ -449,13 +449,16 @@ from .models import User, VendorPayoutOTP  # Import your models
 import random
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthenticated])
 def generate_vendor_otp(request, vendor_id):
     """
     Admin generates an OTP for a vendor.
     """
     try:
+        
         vendor = User.objects.get(id=vendor_id)
+        if not vendor.is_supplier:
+            return Response({'detail': 'user is not a supplier.'}, status=status.HTTP_400_BAD)
         otp = f"{random.randint(100000, 999999)}"  # Generate a 6-digit OTP
         expires_at = now() + timedelta(minutes=10)  # OTP expires in 10 minutes
         
@@ -463,15 +466,21 @@ def generate_vendor_otp(request, vendor_id):
         
         # Send OTP to vendor (e.g., via email or SMS)
         # Example: send_email_to_vendor(vendor.email, f"Your OTP is {otp}")
-        
-        return Response({'success': True, 'message': f"OTP sent to vendor {vendor.email}"})
+        send_temporary_password(
+            otp,
+            "emails/temp_password.html",
+            _("Arbia Account Activation"),
+            vendor.email,
+        )
+        return Response({'success': True, 'message': f"OTP sent to vendor {vendor.email}",'otp':otp})
     except User.DoesNotExist:
         return Response({'error': 'Vendor not found.'}, status=404)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([IsAdminUser])  # Restrict to admins
+@permission_classes([IsAuthenticated])
+  # Restrict to admins
 def payout_to_vendor(request):
     """
     API to transfer money to a vendor's card with OTP validation.
@@ -486,7 +495,7 @@ def payout_to_vendor(request):
 
     try:
         vendor = User.objects.get(id=vendor_id)
-        otp_record = VendorPayoutOTP.objects.filter(vendor=vendor, otp=otp).first()
+        otp_record = VendorPayoutOTP.objects.filter(otp=otp).first()
 
         if not otp_record:
             return Response({'error': 'Invalid OTP.'}, status=400)
